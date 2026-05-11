@@ -4,12 +4,16 @@ Priority list of tasks to turn DCR into a true Cargo killer for C/C++ developers
 
 ## 🔥 High Priority (Next Releases)
 
-- [ ] **Git dependencies support**  
+- [x] **Git dependencies support**  
   `git = "https://github.com/user/repo.git#branch"` and `git = "..."@tag`
 - [ ] **Conan and vcpkg integration**  
   Automatic download, installation and linking of packages
 - [ ] **Full freestanding / embedded support**  
   `-nostdlib`, linker scripts, bare-metal targets (i686-elf, aarch64-none-elf, etc.)
+- [ ] **EFI support**  
+  Dedicated platform configuration for EFI targets
+- [ ] **Custom project name**  
+  Override binary name in `dcr.toml`
 - [ ] **Custom build steps / targets**  
   Ability to define custom pre-build, post-build, codegen steps in `dcr.toml`
 - [ ] **Improved mixed C/C++/ASM projects**  

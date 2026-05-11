@@ -18,6 +18,7 @@ fn main() {
     let code = match cmd {
         "new" => cli::r#new::new(rest),
         "init" => cli::init::init(rest),
+        "add" => cli::add::add(rest),
         "build" => cli::build::build(rest),
         "run" => cli::run::run(rest),
         "test" | "tests" => cli::test::test(rest),

@@ -525,6 +525,18 @@ fn format_dep_value(value: &Value) -> String {
             if let Some(v) = tbl.get("path").and_then(|v| v.as_str()) {
                 parts.push(format!("path = \"{v}\""));
             }
+            if let Some(v) = tbl.get("git").and_then(|v| v.as_str()) {
+                parts.push(format!("git = \"{v}\""));
+            }
+            if let Some(v) = tbl.get("branch").and_then(|v| v.as_str()) {
+                parts.push(format!("branch = \"{v}\""));
+            }
+            if let Some(v) = tbl.get("tag").and_then(|v| v.as_str()) {
+                parts.push(format!("tag = \"{v}\""));
+            }
+            if let Some(v) = tbl.get("rev").and_then(|v| v.as_str()) {
+                parts.push(format!("rev = \"{v}\""));
+            }
             if let Some(v) = tbl.get("system").and_then(|v| v.as_bool()) {
                 parts.push(format!("system = {}", if v { "true" } else { "false" }));
             }

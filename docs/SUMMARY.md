@@ -21,6 +21,7 @@
 
 * [Global options](commands/global-options.md)
 * [dcr init/new](commands/dcr-init-or-new.md)
+* [dcr add](commands/dcr-add.md)
 * [dcr build](commands/dcr-build.md)
 * [dcr run](commands/dcr-run.md)
 * [dcr clean](commands/dcr-clean.md)

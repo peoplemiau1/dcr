@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.0] - 2026-05-12
+
+Added:
+
+- Full Git dependency support in `dcr.toml`
+  - Support for `git`, `branch`, `tag`, and `rev` fields
+  - Automatic cloning and checkout via `git2`
+  - Dependencies are stored in `target/<profile>/deps/git/`
+- New `dcr add` command for easy dependency management
+  - Short syntax: `github:user/repo`, `gitlab:user/repo`, `path:/to/lib`
+  - Automatic GitHub resolution for `git:user/repo`
+- Visual feedback for dependency fetching with in-place status updates ("Fetching" → "Fetched")
+- Modular dependency management architecture in `src/core/deps/`
+
 ## [0.5.1] - 2026-04-12
 
 Fixed:

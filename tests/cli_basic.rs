@@ -222,6 +222,65 @@ fn workspace_build_and_clean_all() {
 }
 
 #[test]
+fn dcr_add_dependencies() {
+    let dir = unique_sandbox_dir("add_dep");
+    let out = run_dcr(&["init"], &dir);
+    assert!(out.status.success(), "dcr init should succeed");
+
+    // Test path: prefix
+    let out = run_dcr(&["add", "mylib", "path:./libs/mylib"], &dir);
+    assert!(out.status.success(), "dcr add path should succeed");
+    let toml = std::fs::read_to_string(dir.join("dcr.toml")).unwrap();
+    assert!(
+        toml.contains("mylib = \"./libs/mylib\""),
+        "path dep not found in toml"
+    );
+
+    // Test github: prefix
+    let out = run_dcr(&["add", "gh_lib", "github:user/repo"], &dir);
+    assert!(out.status.success(), "dcr add github should succeed");
+    let toml = std::fs::read_to_string(dir.join("dcr.toml")).unwrap();
+    assert!(
+        toml.contains("gh_lib = { git = \"https://github.com/user/repo\" }"),
+        "github dep not found in toml"
+    );
+
+    // Test git: prefix (generic)
+    let out = run_dcr(&["add", "custom_git", "git:host.com/user/repo"], &dir);
+    assert!(out.status.success(), "dcr add custom git should succeed");
+    let toml = std::fs::read_to_string(dir.join("dcr.toml")).unwrap();
+    assert!(
+        toml.contains("custom_git = { git = \"https://host.com/user/repo\" }"),
+        "custom git dep not found in toml"
+    );
+
+    // Test git: prefix (github default)
+    let out = run_dcr(&["add", "git_short", "git:user/repo"], &dir);
+    assert!(out.status.success(), "dcr add git short should succeed");
+    let toml = std::fs::read_to_string(dir.join("dcr.toml")).unwrap();
+    assert!(
+        toml.contains("git_short = { git = \"https://github.com/user/repo\" }"),
+        "git short dep not found in toml"
+    );
+
+    // Test flags (branch)
+    let out = run_dcr(
+        &["add", "branch_lib", "github:user/repo", "--branch", "dev"],
+        &dir,
+    );
+    assert!(out.status.success(), "dcr add with branch should succeed");
+    let toml = std::fs::read_to_string(dir.join("dcr.toml")).unwrap();
+    assert!(
+        toml.contains("branch_lib = { git = \"https://github.com/user/repo\", branch = \"dev\" }"),
+        "branch lib not found in toml"
+    );
+
+    // Test failure on no prefix
+    let out = run_dcr(&["add", "fail_lib", "user/repo"], &dir);
+    assert!(!out.status.success(), "dcr add without prefix should fail");
+}
+
+#[test]
 fn dcr_test_runs_without_sandbox_dependency() {
     let Some(compiler) = available_compiler() else {
         eprintln!("no compiler found; skipping dcr test integration");

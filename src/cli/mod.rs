@@ -1,3 +1,4 @@
+pub mod add;
 pub mod build;
 pub mod clean;
 pub mod flag_update;

@@ -1,0 +1,199 @@
+use crate::core::config::Config;
+use crate::utils::fs::find_project_root;
+use crate::utils::log::error;
+use crate::utils::text::{BOLD_GREEN, colored};
+use toml::Value;
+use toml::map::Map;
+
+pub struct AddArgs {
+    pub name: String,
+    pub path: Option<String>,
+    pub git: Option<String>,
+    pub branch: Option<String>,
+    pub tag: Option<String>,
+    pub rev: Option<String>,
+}
+
+pub fn add(args: &[String]) -> i32 {
+    let add_args = match parse_add_args(args) {
+        Ok(a) => a,
+        Err(code) => return code,
+    };
+
+    let start_dir = match std::env::current_dir() {
+        Ok(dir) => dir,
+        Err(_) => {
+            error("Failed to determine current directory");
+            return 1;
+        }
+    };
+
+    let root = match find_project_root(&start_dir) {
+        Ok(Some(dir)) => dir,
+        Ok(None) => {
+            error("dcr.toml file not found");
+            return 1;
+        }
+        Err(_) => {
+            error("Failed to find project root");
+            return 1;
+        }
+    };
+
+    let mut config = match Config::open(&root.join("dcr.toml").to_string_lossy()) {
+        Ok(cfg) => cfg,
+        Err(err) => {
+            error(&err.to_string());
+            return 1;
+        }
+    };
+
+    let dep_value = if let Some(git_url) = add_args.git {
+        if add_args.branch.is_none() && add_args.tag.is_none() && add_args.rev.is_none() {
+            let mut table = Map::new();
+            table.insert("git".to_string(), Value::String(git_url));
+            Value::Table(table)
+        } else {
+            let mut table = Map::new();
+            table.insert("git".to_string(), Value::String(git_url));
+            if let Some(b) = add_args.branch {
+                table.insert("branch".to_string(), Value::String(b));
+            }
+            if let Some(t) = add_args.tag {
+                table.insert("tag".to_string(), Value::String(t));
+            }
+            if let Some(r) = add_args.rev {
+                table.insert("rev".to_string(), Value::String(r));
+            }
+            Value::Table(table)
+        }
+    } else if let Some(path) = add_args.path {
+        Value::String(path)
+    } else {
+        error("Dependency source (path or git) must be provided");
+        return 1;
+    };
+
+    let key = format!("dependencies.{}", add_args.name);
+    if let Err(err) = config.edit(&key, dep_value) {
+        error(&format!("Failed to update dcr.toml: {}", err));
+        return 1;
+    }
+
+    println!(
+        "    {} dependency `{}` to dcr.toml",
+        colored("Added", BOLD_GREEN),
+        add_args.name
+    );
+    0
+}
+
+fn parse_add_args(args: &[String]) -> Result<AddArgs, i32> {
+    if args.is_empty() {
+        error("Usage: dcr add <name> <source> [--branch <branch> | --tag <tag> | --rev <rev>]");
+        error("Sources:");
+        error("  user/repo                 -> github.com/user/repo");
+        error("  github:user/repo          -> github.com/user/repo");
+        error("  gitlab:user/repo          -> gitlab.com/user/repo");
+        error("  git:host.com/user/repo    -> host.com/user/repo");
+        error("  path:./path/to/lib        -> local path");
+        return Err(1);
+    }
+
+    let mut name = String::new();
+    let source_spec: String;
+    let mut branch = None;
+    let mut tag = None;
+    let mut rev = None;
+
+    let mut iter = args.iter();
+    if let Some(n) = iter.next() {
+        if n.starts_with("--") {
+            error("First argument must be the dependency name");
+            return Err(1);
+        }
+        name = n.clone();
+    }
+
+    if let Some(s) = iter.next() {
+        if s.starts_with("--") {
+            error("Second argument must be the dependency source");
+            return Err(1);
+        }
+        source_spec = s.clone();
+    } else {
+        error("Dependency source is required");
+        return Err(1);
+    }
+
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--branch" => {
+                branch = iter.next().cloned();
+                if branch.is_none() {
+                    error("--branch requires a value");
+                    return Err(1);
+                }
+            }
+            "--tag" => {
+                tag = iter.next().cloned();
+                if tag.is_none() {
+                    error("--tag requires a value");
+                    return Err(1);
+                }
+            }
+            "--rev" => {
+                rev = iter.next().cloned();
+                if rev.is_none() {
+                    error("--rev requires a value");
+                    return Err(1);
+                }
+            }
+            _ => {
+                error(&format!("Unknown argument: {}", arg));
+                return Err(1);
+            }
+        }
+    }
+
+    let mut path = None;
+    let mut git = None;
+
+    if let Some(p) = source_spec.strip_prefix("path:") {
+        path = Some(p.to_string());
+    } else if let Some(g) = source_spec.strip_prefix("github:") {
+        git = Some(format!("https://github.com/{}", g));
+    } else if let Some(g) = source_spec.strip_prefix("gitlab:") {
+        git = Some(format!("https://gitlab.com/{}", g));
+    } else if let Some(g) = source_spec.strip_prefix("git:") {
+        if g.contains('/') && !g.contains('.') {
+            // git:user/repo -> default to github
+            git = Some(format!("https://github.com/{}", g));
+        } else {
+            // git:host.com/user/repo
+            let url = if g.starts_with("http") || g.starts_with("git@") {
+                g.to_string()
+            } else {
+                format!("https://{}", g)
+            };
+            git = Some(url);
+        }
+    } else if source_spec.starts_with("http://")
+        || source_spec.starts_with("https://")
+        || source_spec.starts_with("git@")
+    {
+        git = Some(source_spec);
+    } else {
+        error("Source must have a prefix (path:, git:, github:, gitlab:) or be a full URL");
+        return Err(1);
+    }
+
+    Ok(AddArgs {
+        name,
+        path,
+        git,
+        branch,
+        tag,
+        rev,
+    })
+}

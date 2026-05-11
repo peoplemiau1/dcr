@@ -17,6 +17,7 @@ The current implementation is written in Rust.
 - Generate IDE integration files (VS Code, CLion) and compilation databases
 - Generate a minimal C project template
 - Build static and shared libraries
+- Git and Path dependency support with `dcr.lock` and automatic resolution
 - ASM projects with NASM/GAS or via GCC/Clang
 - Mixed language projects (`language = ["c", "asm"]` and similar)
 - Cross-compilation with `--target` (short names: `linux`, `macos`, `windows`)
@@ -105,6 +106,11 @@ Creates a project with the specified name in the current directory.
 
 ### `dcr init`
 Creates a project in the current directory. The project name is taken from the directory name. The directory must be empty.
+
+### `dcr add <name> <source>`
+Adds a dependency to `dcr.toml`.
+Sources can be `path:`, `github:`, `gitlab:`, `git:`, or a full URL.
+Use `--branch`, `--tag`, or `--rev` for Git dependencies.
 
 ### `dcr build [profile]`
 Builds the project. If no profile is specified, `--debug` is used.
@@ -211,20 +217,22 @@ ldflags = ["-lm"]
 # rcc = "rcc"
 
 [dependencies]
+my_lib = "path:./libs/my_lib"
+cool_lib = { git = "https://github.com/user/cool_lib", tag = "v1.0" }
 ```
 
 Workspace example:
-
-```toml
+...
 [workspace]
 kernel = { path = "src/kernel", deps = ["core", "userspace"] }
 core = { path = "src/core", deps = ["userspace"] }
 userspace = { path = "src/userspace" }
 ```
 
-Path dependencies are supported. DCR will resolve them on build and generate `dcr.lock`.
+Git and Path dependencies are supported. DCR will resolve them on build and generate `dcr.lock`.
 
-Incremental build note: object files are rebuilt when source `.c/.cpp` files change. Header dependency tracking is not implemented yet.
+Incremental build note: object files are rebuilt when source `.c/.cpp` or included header files change.
+
 
 ## Requirements
 - Rust toolchain (`rustc`, `cargo`) - for building DCR from source
