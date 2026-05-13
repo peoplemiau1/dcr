@@ -107,35 +107,83 @@ fn build_objects(
     ctx: &BuildContext,
     obj_ext: &str,
 ) -> Result<Vec<String>, String> {
-    let mut objects = Vec::new();
+    let objects: Vec<String> = sources
+        .iter()
+        .map(|s| common::object_path(obj_dir, s, obj_ext))
+        .collect();
+
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
+    let counter = std::sync::atomic::AtomicUsize::new(0);
+    let err_msg = std::sync::Mutex::new(None);
     let format = nasm_format(ctx.platform);
-    for source in sources {
-        let obj_path = common::object_path(obj_dir, source, obj_ext);
-        if let Some(parent) = Path::new(&obj_path).parent() {
-            fs::create_dir_all(parent).map_err(|err| format!("obj dir error: {err}"))?;
+
+    std::thread::scope(|s| {
+        for _ in 0..num_threads {
+            s.spawn(|| loop {
+                if err_msg.lock().unwrap().is_some() {
+                    break;
+                }
+
+                let i = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= sources.len() {
+                    break;
+                }
+
+                let source = &sources[i];
+                let obj_path = &objects[i];
+
+                if let Err(e) = build_object(assembler, source, obj_path, format, ctx) {
+                    let mut err = err_msg.lock().unwrap();
+                    if err.is_none() {
+                        *err = Some(e);
+                    }
+                    break;
+                }
+            });
         }
-        if common::needs_rebuild(source, &obj_path) {
-            let mut cmd = Command::new(assembler);
-            cmd.arg("-f")
-                .arg(format)
-                .arg(source)
-                .arg("-o")
-                .arg(&obj_path);
-            for flag in ctx.cflags {
-                cmd.arg(flag);
-            }
-            if std::env::var("DCR_DEBUG").is_ok() {
-                eprintln!("[dcr] {:?}", cmd);
-            }
-            match cmd.status() {
-                Ok(status) if status.success() => {}
-                Ok(_) => return Err("Build failed".to_string()),
-                Err(err) => return Err(format!("Build failed: {err}")),
-            }
-        }
-        objects.push(obj_path);
+    });
+
+    if let Some(err) = err_msg.into_inner().unwrap() {
+        return Err(err);
     }
+
     Ok(objects)
+}
+
+fn build_object(
+    assembler: &str,
+    source: &str,
+    obj_path: &str,
+    format: &str,
+    ctx: &BuildContext,
+) -> Result<(), String> {
+    if let Some(parent) = Path::new(obj_path).parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("obj dir error: {err}"))?;
+    }
+
+    if !common::needs_rebuild(source, obj_path) {
+        return Ok(());
+    }
+
+    let mut cmd = Command::new(assembler);
+    cmd.arg("-f").arg(format).arg(source).arg("-o").arg(obj_path);
+
+    for flag in ctx.cflags {
+        cmd.arg(flag);
+    }
+
+    if std::env::var("DCR_DEBUG").is_ok() {
+        eprintln!("[dcr] {:?}", cmd);
+    }
+
+    match cmd.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err("Build failed".to_string()),
+        Err(err) => Err(format!("Build failed: {err}")),
+    }
 }
 
 fn nasm_format(platform: Option<&str>) -> &'static str {

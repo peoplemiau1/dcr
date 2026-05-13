@@ -192,96 +192,154 @@ fn build_objects(
     ctx: &BuildContext,
     obj_ext: &str,
 ) -> Result<Vec<String>, String> {
-    let mut objects = Vec::new();
-    for source in sources {
-        let obj_path = common::object_path(obj_dir, source, obj_ext);
-        if let Some(parent) = Path::new(&obj_path).parent() {
-            fs::create_dir_all(parent).map_err(|err| format!("obj dir error: {err}"))?;
+    let objects: Vec<String> = sources
+        .iter()
+        .map(|s| common::object_path(obj_dir, s, obj_ext))
+        .collect();
+
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
+    let counter = std::sync::atomic::AtomicUsize::new(0);
+    let err_msg = std::sync::Mutex::new(None);
+
+    std::thread::scope(|s| {
+        for _ in 0..num_threads {
+            s.spawn(|| loop {
+                if err_msg.lock().unwrap().is_some() {
+                    break;
+                }
+
+                let i = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= sources.len() {
+                    break;
+                }
+
+                let source = &sources[i];
+                let obj_path = &objects[i];
+
+                if let Err(e) = build_object(compiler, source, obj_path, ctx) {
+                    let mut err = err_msg.lock().unwrap();
+                    if err.is_none() {
+                        *err = Some(e);
+                    }
+                    break;
+                }
+            });
         }
-        if common::needs_rebuild(source, &obj_path) {
-            let mut cmd = Command::new(compiler);
-            cmd.arg("/nologo");
-            match ctx.language.to_lowercase().as_str() {
-                "c" => {
-                    cmd.arg("/TC");
-                }
-                "c++" | "cpp" | "cxx" => {
-                    cmd.arg("/TP");
-                }
-                _ => {
-                    return Err("Unsupported language".to_string());
-                }
-            }
-            if !ctx.standard.is_empty() && ctx.language.to_lowercase() != "asm" {
-                let std_flag = msvc_standard_flag(ctx.language, ctx.standard)?;
-                cmd.arg(std_flag);
-            }
-            if let Some(flag) = msvc_arch_flag(ctx.platform) {
-                cmd.arg(flag);
-            }
-            if ctx.cflags.is_empty() {
-                for flag in default_flags(ctx.profile) {
-                    cmd.arg(flag);
-                }
-            }
-            for flag in ctx.cflags {
-                cmd.arg(flag);
-            }
-            for dir in ctx.include_dirs {
-                cmd.arg(format!("/I{dir}"));
-            }
-            cmd.arg("/c").arg(source).arg(format!("/Fo:{}", obj_path));
-            cmd.arg("/showIncludes");
+    });
 
-            if std::env::var("DCR_DEBUG").is_ok() {
-                eprintln!("[dcr] {:?}", cmd);
-            }
-            let output = cmd.output().map_err(|err| format!("Build failed: {err}"))?;
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-
-            let mut headers = Vec::new();
-            let mut clean_stdout = String::new();
-            for line in stdout.lines() {
-                if let Some(stripped) = line.strip_prefix("Note: including file:") {
-                    headers.push(stripped.trim().to_string());
-                } else if let Some(stripped) = line.strip_prefix("Примечание: включение файла:")
-                {
-                    headers.push(stripped.trim().to_string());
-                } else {
-                    clean_stdout.push_str(line);
-                    clean_stdout.push('\n');
-                }
-            }
-
-            if !output.status.success() {
-                eprint!("{}", clean_stdout);
-                eprint!("{}", stderr);
-                return Err("Build failed".to_string());
-            } else {
-                let trimmed_out = clean_stdout.trim();
-                let trimmed_err = stderr.trim();
-                let src_filename = Path::new(source)
-                    .file_name()
-                    .and_then(|v| v.to_str())
-                    .unwrap_or("");
-                if !trimmed_out.is_empty() && trimmed_out != src_filename {
-                    print!("{}", clean_stdout);
-                }
-                if !trimmed_err.is_empty() {
-                    eprintln!("{}", trimmed_err);
-                }
-            }
-
-            let d_path = Path::new(&obj_path).with_extension("d");
-            let mut d_content = format!("{}: \\\n", obj_path.replace('\\', "/"));
-            for h in headers {
-                let escaped = h.replace('\\', "/").replace(" ", "\\ ");
-                d_content.push_str(&format!("  {} \\\n", escaped));
-            }
-            std::fs::write(&d_path, d_content).map_err(|err| format!("d file error: {err}"))?;
-        }
-        objects.push(obj_path);
+    if let Some(err) = err_msg.into_inner().unwrap() {
+        return Err(err);
     }
+
     Ok(objects)
+}
+
+fn build_object(
+    compiler: &str,
+    source: &str,
+    obj_path: &str,
+    ctx: &BuildContext,
+) -> Result<(), String> {
+    if let Some(parent) = Path::new(obj_path).parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("obj dir error: {err}"))?;
+    }
+
+    if !common::needs_rebuild(source, obj_path) {
+        return Ok(());
+    }
+
+    let mut cmd = Command::new(compiler);
+    cmd.arg("/nologo");
+
+    match ctx.language.to_lowercase().as_str() {
+        "c" => {
+            cmd.arg("/TC");
+        }
+        "c++" | "cpp" | "cxx" => {
+            cmd.arg("/TP");
+        }
+        _ => return Err("Unsupported language".to_string()),
+    }
+
+    if !ctx.standard.is_empty() && ctx.language.to_lowercase() != "asm" {
+        let std_flag = msvc_standard_flag(ctx.language, ctx.standard)?;
+        cmd.arg(std_flag);
+    }
+
+    if let Some(flag) = msvc_arch_flag(ctx.platform) {
+        cmd.arg(flag);
+    }
+
+    if ctx.cflags.is_empty() {
+        for flag in default_flags(ctx.profile) {
+            cmd.arg(flag);
+        }
+    }
+
+    for flag in ctx.cflags {
+        cmd.arg(flag);
+    }
+
+    for dir in ctx.include_dirs {
+        cmd.arg(format!("/I{dir}"));
+    }
+
+    cmd.arg("/c").arg(source).arg(format!("/Fo:{}", obj_path));
+    cmd.arg("/showIncludes");
+
+    if std::env::var("DCR_DEBUG").is_ok() {
+        eprintln!("[dcr] {:?}", cmd);
+    }
+
+    let output = cmd.output().map_err(|err| format!("Build failed: {err}"))?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    let mut headers = Vec::new();
+    let mut clean_stdout = String::new();
+
+    for line in stdout.lines() {
+        if let Some(stripped) = line.strip_prefix("Note: including file:") {
+            headers.push(stripped.trim().to_string());
+        } else if let Some(stripped) = line.strip_prefix("Примечание: включение файла:") {
+            headers.push(stripped.trim().to_string());
+        } else {
+            clean_stdout.push_str(line);
+            clean_stdout.push('\n');
+        }
+    }
+
+    if !output.status.success() {
+        eprint!("{}", clean_stdout);
+        eprint!("{}", stderr);
+        return Err("Build failed".to_string());
+    }
+
+    let trimmed_out = clean_stdout.trim();
+    let trimmed_err = stderr.trim();
+    let src_filename = Path::new(source)
+        .file_name()
+        .and_then(|v| v.to_str())
+        .unwrap_or("");
+
+    if !trimmed_out.is_empty() && trimmed_out != src_filename {
+        print!("{}", clean_stdout);
+    }
+
+    if !trimmed_err.is_empty() {
+        eprintln!("{}", trimmed_err);
+    }
+
+    let d_path = Path::new(obj_path).with_extension("d");
+    let mut d_content = format!("{}: \\\n", obj_path.replace('\\', "/"));
+    for h in headers {
+        let escaped = h.replace('\\', "/").replace(" ", "\\ ");
+        d_content.push_str(&format!("  {} \\\n", escaped));
+    }
+    fs::write(&d_path, d_content).map_err(|err| format!("d file error: {err}"))?;
+
+    Ok(())
 }

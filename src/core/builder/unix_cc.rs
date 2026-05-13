@@ -132,54 +132,112 @@ fn build_objects(
     ctx: &BuildContext,
     obj_ext: &str,
 ) -> Result<Vec<String>, String> {
-    let mut objects = Vec::new();
-    for source in sources {
-        let obj_path = common::object_path(obj_dir, source, obj_ext);
-        if let Some(parent) = Path::new(&obj_path).parent() {
-            fs::create_dir_all(parent).map_err(|err| format!("obj dir error: {err}"))?;
-        }
-        if common::needs_rebuild(source, &obj_path) {
-            let mut cmd = Command::new(compiler);
-            cmd.arg("-c").arg(source).arg("-o").arg(&obj_path);
-            if ctx.kind == "sharedlib" {
-                cmd.arg("-fPIC");
-            }
-            if let Some(flag) = asm_lang_flag(source) {
-                cmd.arg("-x").arg(flag);
-            }
-            if let Some(platform) = ctx.platform
-                && !platform.trim().is_empty()
-            {
-                cmd.arg(format!("-march={}", platform));
-            }
-            if !ctx.standard.is_empty() && ctx.language.to_lowercase() != "asm" {
-                cmd.arg(format!("-std={}", ctx.standard));
-            }
-            if ctx.cflags.is_empty() {
-                for flag in default_flags(ctx.profile) {
-                    cmd.arg(flag);
+    let objects: Vec<String> = sources
+        .iter()
+        .map(|s| common::object_path(obj_dir, s, obj_ext))
+        .collect();
+
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
+    let counter = std::sync::atomic::AtomicUsize::new(0);
+    let err_msg = std::sync::Mutex::new(None);
+
+    std::thread::scope(|s| {
+        for _ in 0..num_threads {
+            s.spawn(|| loop {
+                if err_msg.lock().unwrap().is_some() {
+                    break;
                 }
-            }
-            for flag in ctx.cflags {
-                cmd.arg(flag);
-            }
-            for dir in ctx.include_dirs {
-                cmd.arg(format!("-I{dir}"));
-            }
-            let d_path = Path::new(&obj_path).with_extension("d");
-            cmd.arg("-MMD").arg("-MF").arg(&d_path);
-            if std::env::var("DCR_DEBUG").is_ok() {
-                eprintln!("[dcr] {:?}", cmd);
-            }
-            match cmd.status() {
-                Ok(status) if status.success() => {}
-                Ok(_) => return Err("Build failed".to_string()),
-                Err(err) => return Err(format!("Build failed: {err}")),
-            }
+
+                let i = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if i >= sources.len() {
+                    break;
+                }
+
+                let source = &sources[i];
+                let obj_path = &objects[i];
+
+                if let Err(e) = build_object(compiler, source, obj_path, ctx) {
+                    let mut err = err_msg.lock().unwrap();
+                    if err.is_none() {
+                        *err = Some(e);
+                    }
+                    break;
+                }
+            });
         }
-        objects.push(obj_path);
+    });
+
+    if let Some(err) = err_msg.into_inner().unwrap() {
+        return Err(err);
     }
+
     Ok(objects)
+}
+
+fn build_object(
+    compiler: &str,
+    source: &str,
+    obj_path: &str,
+    ctx: &BuildContext,
+) -> Result<(), String> {
+    if let Some(parent) = Path::new(obj_path).parent() {
+        fs::create_dir_all(parent).map_err(|err| format!("obj dir error: {err}"))?;
+    }
+
+    if !common::needs_rebuild(source, obj_path) {
+        return Ok(());
+    }
+
+    let mut cmd = Command::new(compiler);
+    cmd.arg("-c").arg(source).arg("-o").arg(obj_path);
+
+    if ctx.kind == "sharedlib" {
+        cmd.arg("-fPIC");
+    }
+
+    if let Some(flag) = asm_lang_flag(source) {
+        cmd.arg("-x").arg(flag);
+    }
+
+    if let Some(platform) = ctx.platform
+        && !platform.trim().is_empty()
+    {
+        cmd.arg(format!("-march={}", platform));
+    }
+
+    if !ctx.standard.is_empty() && ctx.language.to_lowercase() != "asm" {
+        cmd.arg(format!("-std={}", ctx.standard));
+    }
+
+    if ctx.cflags.is_empty() {
+        for flag in default_flags(ctx.profile) {
+            cmd.arg(flag);
+        }
+    }
+
+    for flag in ctx.cflags {
+        cmd.arg(flag);
+    }
+
+    for dir in ctx.include_dirs {
+        cmd.arg(format!("-I{dir}"));
+    }
+
+    let d_path = Path::new(obj_path).with_extension("d");
+    cmd.arg("-MMD").arg("-MF").arg(&d_path);
+
+    if std::env::var("DCR_DEBUG").is_ok() {
+        eprintln!("[dcr] {:?}", cmd);
+    }
+
+    match cmd.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err("Build failed".to_string()),
+        Err(err) => Err(format!("Build failed: {err}")),
+    }
 }
 
 fn asm_lang_flag(source: &str) -> Option<&'static str> {
