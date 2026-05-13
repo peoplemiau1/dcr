@@ -42,18 +42,67 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # GNU/Linux
+          # x86_64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             asset_name: dcr-x86_64-unknown-linux-gnu
+
+          # ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            asset_name: dcr-aarch64-unknown-linux-gnu
+
+          # Musl/Linux
+          # x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset_name: dcr-x86_64-unknown-linux-musl
+
+          # ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset_name: dcr-aarch64-unknown-linux-musl
+
+          # MacOS
+          # x86_64 (Intel)
           - os: macos-15-intel
             target: x86_64-apple-darwin
             asset_name: dcr-x86_64-apple-darwin
+
+          # ARM64 (Apple Silicon)
           - os: macos-15
             target: aarch64-apple-darwin
             asset_name: dcr-aarch64-apple-darwin
+
+          # Windows MSVC
+          # x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             asset_name: dcr-x86_64-pc-windows-msvc.exe
+
+          # ARM64
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            asset_name: dcr-aarch64-pc-windows-msvc.exe
+
+          # Windows GNU
+          # x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
+            asset_name: dcr-x86_64-pc-windows-gnu.exe
+
+          # Windows LLVM
+          # x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-gnullvm
+            asset_name: dcr-x86_64-pc-windows-gnullvm.exe
+
+
+          # ARM64
+          - os: windows-latest
+            target: aarch64-pc-windows-gnullvm
+            asset_name: dcr-aarch64-pc-windows-gnullvm.exe
 
     runs-on: ${{ matrix.os }}
     needs: notes

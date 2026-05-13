@@ -1,7 +1,11 @@
 pub fn bin_path(profile: &str, name: &str, target_dir: Option<&str>) -> String {
     match target_dir {
         Some(dir) => format!("{}/{}", dir.trim_end_matches('/'), name),
-        None => format!("./target/{profile}/{name}"),
+        None => {
+            let arch = std::env::consts::ARCH;
+            let target = format!("{arch}-unknown-linux-gnu");
+            format!("./target/{target}/{profile}/{name}")
+        }
     }
 }
 
@@ -25,12 +29,16 @@ mod tests {
 
     #[test]
     fn bin_path_default() {
-        assert_eq!(bin_path("debug", "hello", None), "./target/debug/hello");
+        let arch = std::env::consts::ARCH;
+        let expected = format!("./target/{arch}-unknown-linux-gnu/debug/hello");
+        assert_eq!(bin_path("debug", "hello", None), expected);
     }
 
     #[test]
     fn bin_path_release() {
-        assert_eq!(bin_path("release", "hello", None), "./target/release/hello");
+        let arch = std::env::consts::ARCH;
+        let expected = format!("./target/{arch}-unknown-linux-gnu/release/hello");
+        assert_eq!(bin_path("release", "hello", None), expected);
     }
 
     #[test]

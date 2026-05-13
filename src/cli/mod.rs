@@ -8,4 +8,5 @@ pub mod help;
 pub mod init;
 pub mod new;
 pub mod run;
+pub mod setup;
 pub mod test;

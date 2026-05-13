@@ -1,5 +1,6 @@
 use std::path::Path;
 
+#[allow(dead_code)]
 pub fn fetch_git_dep(
     url: &str,
     target_dir: &Path,
@@ -29,6 +30,7 @@ pub fn fetch_git_dep(
     Ok(())
 }
 
+#[allow(dead_code)]
 fn checkout_ref(repo: &git2::Repository, reference_str: &str) -> Result<(), String> {
     let (object, reference) = repo
         .revparse_ext(reference_str)

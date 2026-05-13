@@ -17,18 +17,20 @@ The current implementation is written in Rust.
 - Generate IDE integration files (VS Code, CLion) and compilation databases
 - Generate a minimal C project template
 - Build static and shared libraries
-- Git and Path dependency support with `dcr.lock` and automatic resolution
+- Dependency management:
+  - Git and Path dependencies with `dcr.lock`
+  - Registry-based dependency resolution
+- Library packaging functionality (auto-generate `include/` and `lib/` for `type = "lib"` packages)
 - ASM projects with NASM/GAS or via GCC/Clang
-- Mixed language projects (`language = ["c", "asm"]` and similar)
-- Cross-compilation with `--target` (short names: `linux`, `macos`, `windows`)
+- Mixed language projects
+- Cross-compilation with `--target` (full triple support and short names)
 - Target-specific configurations and inheritance
-- Update the binary via `dcr --update` (GitHub Releases, not for pacman/AUR installs)
+- Update the binary via `dcr --update` (GitHub Releases)
 
 ## Supported Platforms
-- Linux: `x86_64-unknown-linux-gnu`
-- macOS Intel: `x86_64-apple-darwin`
-- macOS Apple Silicon: `aarch64-apple-darwin`
-- Windows: `x86_64-pc-windows-msvc`
+- Linux: x86_64/aarch64 (GNU and Musl)
+- macOS: x86_64/aarch64
+- Windows: x86_64/aarch64 (MSVC, GNU, LLVM)
 
 ## Installation
 
@@ -107,9 +109,13 @@ Creates a project with the specified name in the current directory.
 ### `dcr init`
 Creates a project in the current directory. The project name is taken from the directory name. The directory must be empty.
 
+### `dcr setup`
+Initializes the registry system by reading `~/.dcr/config.toml` and verifying the availability of configured indices.
+
 ### `dcr add <name> <source>`
 Adds a dependency to `dcr.toml`.
-Sources can be `path:`, `github:`, `gitlab:`, `git:`, or a full URL.
+If a registry is configured, `dcr` automatically finds the package.
+Git/Path syntax: `path:`, `github:`, `gitlab:`, `git:`, or a full URL.
 Use `--branch`, `--tag`, or `--rev` for Git dependencies.
 
 ### `dcr build [profile]`
@@ -183,6 +189,7 @@ See [Cross-compilation guide](docs/dependencies-and-build/cross-compilation.md) 
 
 ## Configuration
 The main project file is `dcr.toml`.
+For multi-registry management, use `~/.dcr/config.toml`.
 
 Example `dcr.toml`:
 
@@ -190,11 +197,13 @@ Example `dcr.toml`:
 [package]
 name = "hello"
 version = "0.1.0"
+type = "app" # or "lib", "none"
 
 [build]
 language = "c"
 standard = "c11"
 compiler = "clang"
+kind = "bin" # "bin", "staticlib", "sharedlib"
 # Optional platform hint
 # platform = "x86_64"
 # Optional custom flags

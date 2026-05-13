@@ -281,6 +281,42 @@ fn dcr_add_dependencies() {
 }
 
 #[test]
+fn dcr_builds_lib_package() {
+    let Some(compiler) = available_compiler() else {
+        eprintln!("no compiler found; skipping lib package test");
+        return;
+    };
+
+    let dir = unique_sandbox_dir("lib_package");
+    let out = run_dcr(&["init"], &dir);
+    assert!(out.status.success(), "dcr init should succeed");
+
+    let toml = std::fs::read_to_string(dir.join("dcr.toml")).unwrap();
+    let updated_toml = toml
+        .replace("kind = \"bin\"", "kind = \"staticlib\"")
+        .replace("type = \"none\"", "type = \"lib\"");
+    std::fs::write(dir.join("dcr.toml"), updated_toml).expect("failed to write toml");
+
+    std::fs::write(dir.join("src").join("my_lib.h"), "void hello();")
+        .expect("failed to write header");
+
+    let envs = [("DCR_COMPILER", compiler)];
+    let out = run_dcr_env(&["build"], &dir, &envs);
+    if !out.status.success() {
+        eprintln!("stdout: {}", String::from_utf8_lossy(&out.stdout));
+        eprintln!("stderr: {}", String::from_utf8_lossy(&out.stderr));
+    }
+    assert!(out.status.success(), "dcr build should succeed");
+
+    let target_dir = dir.join("target");
+    assert!(
+        target_dir.join("include").join("my_lib.h").is_file(),
+        "include/my_lib.h missing"
+    );
+    assert!(target_dir.join("lib").exists(), "lib directory missing");
+}
+
+#[test]
 fn dcr_test_runs_without_sandbox_dependency() {
     let Some(compiler) = available_compiler() else {
         eprintln!("no compiler found; skipping dcr test integration");

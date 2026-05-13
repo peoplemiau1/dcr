@@ -1,7 +1,9 @@
+#[allow(dead_code)]
 use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum DepSource {
     Path(String),
     Git {
@@ -10,8 +12,13 @@ pub enum DepSource {
         tag: Option<String>,
         rev: Option<String>,
     },
+    Registry {
+        version: String,
+        features: Option<Vec<String>>,
+    },
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct DepSpec {
     pub name: String,
@@ -21,13 +28,14 @@ pub struct DepSpec {
     pub libs_raw: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolvedDeps {
     pub include_dirs: Vec<String>,
     pub lib_dirs: Vec<String>,
     pub libs: Vec<String>,
 }
 
+#[allow(dead_code)]
 pub fn resolve_path(project_root: &Path, raw: &str) -> Result<PathBuf, String> {
     let p = Path::new(raw);
     let full = if p.is_absolute() {
@@ -38,6 +46,7 @@ pub fn resolve_path(project_root: &Path, raw: &str) -> Result<PathBuf, String> {
     Ok(full)
 }
 
+#[allow(dead_code)]
 pub fn resolve_paths(
     base: &Path,
     raw: Option<&[String]>,
@@ -71,10 +80,12 @@ pub fn resolve_paths(
     Ok(out)
 }
 
+#[allow(dead_code)]
 pub fn expand_profile(raw: &str, profile: &str) -> String {
     raw.replace("{profile}", profile)
 }
 
+#[allow(dead_code)]
 pub fn sync_dep_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     if dst.exists() {
         fs::remove_dir_all(dst)?;
@@ -82,6 +93,7 @@ pub fn sync_dep_dir(src: &Path, dst: &Path) -> std::io::Result<()> {
     copy_dir_all(src, dst)
 }
 
+#[allow(dead_code)]
 pub fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {

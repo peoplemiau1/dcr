@@ -17,6 +17,7 @@ pub struct BuildContext<'a> {
     pub platform: Option<&'a str>,
     pub linker: Option<&'a str>,
     pub archiver: Option<&'a str>,
+    pub package_type: Option<&'a str>,
     pub source_roots: &'a [std::path::PathBuf],
     pub exclude_dirs: &'a [std::path::PathBuf],
     pub include_paths: &'a [String],

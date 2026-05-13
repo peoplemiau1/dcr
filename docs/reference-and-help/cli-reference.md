@@ -5,6 +5,8 @@
 ```text
 dcr new <name>
 dcr init
+dcr setup
+dcr add <name> <source>(optional)
 dcr build [--debug|--release]
 dcr run [--debug|--release]
 dcr clean [--debug|--release] [--all]

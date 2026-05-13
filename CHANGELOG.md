@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.5] - 2026-05-13
+
+Added:
+
+- New dependency registry system
+- Package type support (`lib`, `app`, `none`) in `dcr.toml`
+- Library packaging functionality: automatically generates `include` and `lib` directories in `target/` for `lib` type projects
+- Expanded CI build targets:
+  - Linux: `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`
+  - Windows: `aarch64-pc-windows-msvc`, `x86_64-pc-windows-gnu`, `aarch64-pc-windows-gnullvm`
+
+Changed:
+
+- `src/core/deps/` modular architecture overhaul
+- Native platform pathing defaults for Linux (now dynamic architecture detection)
+- Improved `run` command output handling
+
 ## [0.6.0] - 2026-05-12
 
 Added:

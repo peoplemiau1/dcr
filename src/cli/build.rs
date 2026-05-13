@@ -3,7 +3,7 @@ use crate::cli::flags::parse_build_run_flags;
 use crate::core::builder::common;
 use crate::core::builder::{BuildContext, build as build_project, collect_sources};
 use crate::core::config::Config;
-use crate::core::deps::resolve_deps;
+use crate::core::deps::{register, resolve_deps};
 use crate::core::workspace::parse_workspace;
 use crate::utils::fs::{check_dir, find_project_root};
 use crate::utils::log::{error, warn};
@@ -476,7 +476,7 @@ fn build_from_root(
             );
         } else {
             println!(
-                "    Building project `{}`\n    Profile: {}\n    Target: {}",
+                "    Building project `{}`\n    Profile: {}\n      Target: {}",
                 colored(&project_name, BOLD_GREEN),
                 colored(profile, BOLD_GREEN),
                 colored(
@@ -544,6 +544,11 @@ fn build_project_at(
         let build_kind = get_string_with_profile_and_target(&config, "kind", profile, build_target);
         let build_platform =
             get_string_with_profile_and_target(&config, "platform", profile, build_target);
+        let mut build_type =
+            get_string_with_profile_and_target(&config, "type", profile, build_target);
+        if build_type.is_empty() {
+            build_type = get_config_str(&config, "package.type");
+        }
         let tc_cc = get_config_value(&config, "toolchain", "cc", profile, build_target)
             .or_else(|| get_config_opt(&config, "toolchain.cc"));
         let tc_cxx = get_config_value(&config, "toolchain", "cxx", profile, build_target)
@@ -593,7 +598,68 @@ fn build_project_at(
         let target_dir = build_target.map(|t| format!("target/{t}/{profile}"));
         ensure_target_dirs(&items, profile, target_dir);
 
-        let resolved = resolve_deps(&config, profile, build_target, project_root)?;
+        let deps_table = config.get("dependencies").and_then(|v| v.as_table());
+        let mut resolved = resolve_deps(&config, profile, build_target, project_root)?;
+
+        // Process dependencies
+        if let Some(deps) = deps_table {
+            for (name, _) in deps {
+                if register::is_registry_dep(config.get(&format!("dependencies.{name}")).unwrap()) {
+                    let pkg_info = register::resolve_package_from_registry(name)?;
+                    let _version = pkg_info
+                        .get("latest_version")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+
+                    let pkg_path = pkg_info.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                    let dep_root = register::get_index_path()
+                        .parent()
+                        .unwrap()
+                        .join(Path::new(pkg_path).parent().unwrap());
+                    let include_dir = dep_root.join("target").join("include");
+
+                    if !include_dir.exists() {
+                        print!(
+                            "\r{:100}\r      {} {} v{}",
+                            "",
+                            colored("Building", BOLD_GREEN),
+                            name,
+                            _version
+                        );
+                        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        print!(
+                            "\r{:100}\r       {} {} v{}",
+                            "",
+                            colored("Ready", BOLD_GREEN),
+                            name,
+                            _version
+                        );
+                        println!();
+                    } else {
+                        println!(
+                            "      {} {} v{}",
+                            colored("Ready", BOLD_GREEN),
+                            name,
+                            _version
+                        );
+                    }
+
+                    resolved
+                        .include_dirs
+                        .push(include_dir.to_string_lossy().to_string());
+                    resolved.lib_dirs.push(
+                        dep_root
+                            .join("target")
+                            .join("lib")
+                            .to_string_lossy()
+                            .to_string(),
+                    );
+                    resolved.libs.push(name.clone());
+                }
+            }
+        }
+
         let (resolved_cflags, resolved_ldflags) =
             resolve_pkg_config_flags(&pkg_configs, &build_cflags, &build_ldflags)?;
         let mut combined_excludes = Vec::new();
@@ -675,6 +741,11 @@ fn build_project_at(
             platform: normalize_platform(&build_platform),
             linker: resolved_linker.as_deref(),
             archiver: resolved_archiver.as_deref(),
+            package_type: if build_type.is_empty() {
+                None
+            } else {
+                Some(build_type.as_str())
+            },
             source_roots: &source_roots,
             exclude_dirs: &combined_excludes,
             include_paths: &combined_includes,
@@ -734,6 +805,9 @@ fn build_project_at(
             run_build(&ctx)?;
             write_build_fingerprint(&ctx, &fingerprint)?;
         }
+        if ctx.package_type == Some("lib") {
+            package_library(&ctx, &headers)?;
+        }
         let post_steps_dirty = build_steps_need_run(&build_post_steps, &step_vars)?;
         if post_steps_dirty {
             run_build_steps(&build_post_steps, &tool_execs, &step_flags, &step_vars)?;
@@ -741,6 +815,59 @@ fn build_project_at(
         verify_expectations(&build_expects, &step_vars)?;
         Ok(())
     })
+}
+
+fn package_library(ctx: &BuildContext, headers: &[PathBuf]) -> Result<(), String> {
+    let target_root = if let Some(dir) = ctx.target_dir {
+        Path::new(dir)
+            .parent()
+            .and_then(|p| p.parent())
+            .unwrap_or_else(|| Path::new("target"))
+    } else {
+        Path::new("target")
+    };
+
+    let include_dir = target_root.join("include");
+    let lib_dir = target_root.join("lib");
+
+    fs::create_dir_all(&include_dir).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&lib_dir).map_err(|e| e.to_string())?;
+
+    for header in headers {
+        if let Some(name) = header.file_name() {
+            let dest = include_dir.join(name);
+            fs::copy(header, dest)
+                .map_err(|e| format!("Failed to copy header {:?}: {}", header, e))?;
+        }
+    }
+
+    let mut outputs = Vec::new();
+    if ctx.kind == "staticlib" || ctx.kind == "any" {
+        outputs.push(crate::platform::lib_path(
+            ctx.profile,
+            ctx.project_name,
+            ctx.target_dir,
+        ));
+    }
+    if ctx.kind == "sharedlib" || ctx.kind == "any" {
+        outputs.push(crate::platform::shared_lib_path(
+            ctx.profile,
+            ctx.project_name,
+            ctx.target_dir,
+        ));
+    }
+
+    for output in outputs {
+        let path = Path::new(&output);
+        if path.exists()
+            && let Some(name) = path.file_name()
+        {
+            let dest = lib_dir.join(name);
+            fs::copy(path, dest).map_err(|e| format!("Failed to copy lib {:?}: {}", path, e))?;
+        }
+    }
+
+    Ok(())
 }
 
 fn with_dir<F, T>(dir: &Path, f: F) -> Result<T, String>

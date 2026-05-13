@@ -110,6 +110,16 @@ impl Config {
             }
         }
 
+        if let Some(pkg_type) = package.get("type").and_then(|v| v.as_str()) {
+            let pkg_type = pkg_type.trim();
+            if !pkg_type.is_empty() && pkg_type != "lib" && pkg_type != "app" && pkg_type != "none"
+            {
+                return Err(ConfigError::Invalid(
+                    "package.type must be 'lib', 'app', or 'none'".into(),
+                ));
+            }
+        }
+
         let build = self
             .get("build")
             .and_then(|v| v.as_table())
@@ -398,6 +408,11 @@ fn default_toml() -> Result<Value, ConfigError> {
         "version".to_string(),
         Value::String(DEFAULT_VERSION.to_string()),
     );
+    package.insert("type".to_string(), Value::String("none".to_string()));
+    package.insert("description".to_string(), Value::String("".to_string()));
+    package.insert("author".to_string(), Value::String("".to_string()));
+    package.insert("license".to_string(), Value::String("MIT".to_string()));
+
     let mut build = Map::new();
     build.insert(
         "language".to_string(),
@@ -458,7 +473,29 @@ fn format_toml(value: &Value) -> Result<String, ConfigError> {
     let mut out = String::new();
     out.push_str("[package]\n");
     out.push_str(&format!("name = \"{name}\"\n"));
-    out.push_str(&format!("version = \"{version}\"\n\n"));
+    out.push_str(&format!("version = \"{version}\"\n"));
+
+    for key in [
+        "type",
+        "description",
+        "author",
+        "authors",
+        "homepage",
+        "license",
+        "repository",
+        "readme",
+        "keywords",
+        "categories",
+    ] {
+        if let Some(val) = package.get(key) {
+            match val {
+                Value::String(s) => out.push_str(&format!("{key} = \"{s}\"\n")),
+                Value::Array(_) => out.push_str(&format!("{key} = {}\n", format_string_array(val))),
+                _ => {}
+            }
+        }
+    }
+    out.push('\n');
 
     out.push_str("[build]\n");
     if language.starts_with('[') {
@@ -522,6 +559,9 @@ fn format_dep_value(value: &Value) -> String {
         Value::String(s) => format!("\"{s}\""),
         Value::Table(tbl) => {
             let mut parts = Vec::new();
+            if let Some(v) = tbl.get("version").and_then(|v| v.as_str()) {
+                parts.push(format!("version = \"{v}\""));
+            }
             if let Some(v) = tbl.get("path").and_then(|v| v.as_str()) {
                 parts.push(format!("path = \"{v}\""));
             }
@@ -537,17 +577,17 @@ fn format_dep_value(value: &Value) -> String {
             if let Some(v) = tbl.get("rev").and_then(|v| v.as_str()) {
                 parts.push(format!("rev = \"{v}\""));
             }
+            if let Some(v) = tbl.get("default-features").and_then(|v| v.as_bool()) {
+                parts.push(format!(
+                    "default-features = {}",
+                    if v { "true" } else { "false" }
+                ));
+            }
+            if let Some(v) = tbl.get("features") {
+                parts.push(format!("features = {}", format_string_array(v)));
+            }
             if let Some(v) = tbl.get("system").and_then(|v| v.as_bool()) {
                 parts.push(format!("system = {}", if v { "true" } else { "false" }));
-            }
-            if let Some(v) = tbl.get("include") {
-                parts.push(format!("include = {}", format_string_array(v)));
-            }
-            if let Some(v) = tbl.get("lib") {
-                parts.push(format!("lib = {}", format_string_array(v)));
-            }
-            if let Some(v) = tbl.get("libs") {
-                parts.push(format!("libs = {}", format_string_array(v)));
             }
             format!("{{ {} }}", parts.join(", "))
         }

@@ -18,18 +18,20 @@ pub fn write_lock(
     packages: &[DepLock],
 ) -> Result<(), String> {
     let mut out = String::new();
+    out.push_str("[[package]]\n");
+    out.push_str(&format!("name = \"{}\"\n", escape_value(project_name)));
+    out.push_str(&format!(
+        "version = \"{}\"\n",
+        escape_value(project_version)
+    ));
     if !packages.is_empty() {
-        out.push_str("[[package]]\n");
-        out.push_str(&format!("name = \"{}\"\n", escape_value(project_name)));
         out.push_str(&format!(
-            "version = \"{}\"\n",
-            escape_value(project_version)
-        ));
-        out.push_str(&format!(
-            "dependencies = [{}]\n\n",
+            "dependencies = [{}]\n",
             quote_list(&packages.iter().map(|p| p.name.clone()).collect::<Vec<_>>())
         ));
     }
+    out.push('\n');
+
     for pkg in packages {
         out.push_str("[[package]]\n");
         out.push_str(&format!("name = \"{}\"\n", escape_value(&pkg.name)));
@@ -55,6 +57,7 @@ fn escape_value(input: &str) -> String {
     input.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+#[allow(dead_code)]
 pub fn read_dep_version(dep_path: &Path) -> Option<String> {
     let path = dep_path.join("dcr.toml");
     let content = fs::read_to_string(path).ok()?;
@@ -67,6 +70,7 @@ pub fn read_dep_version(dep_path: &Path) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+#[allow(dead_code)]
 pub fn compute_checksum(root: &Path) -> Result<String, String> {
     let mut files = Vec::new();
     collect_files(root, root, &mut files)?;
@@ -82,6 +86,7 @@ pub fn compute_checksum(root: &Path) -> Result<String, String> {
     Ok(to_hex(&hash))
 }
 
+#[allow(dead_code)]
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), String> {
     for entry in fs::read_dir(dir).map_err(|err| format!("read_dir failed: {err}"))? {
         let entry = entry.map_err(|err| format!("read_dir failed: {err}"))?;
@@ -105,6 +110,7 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) -> Result<(), S
     Ok(())
 }
 
+#[allow(dead_code)]
 fn to_hex(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len() * 2);
     for b in bytes {
