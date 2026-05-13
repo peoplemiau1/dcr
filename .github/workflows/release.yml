@@ -65,13 +65,13 @@ jobs:
             asset_name: dcr-aarch64-unknown-linux-musl
 
           # MacOS
-          # x86_64 (Intel)
+          # x86_64 (Intel Mac, macOS 10.12+)
           - os: macos-15-intel
             target: x86_64-apple-darwin
             asset_name: dcr-x86_64-apple-darwin
 
-          # ARM64 (Apple Silicon)
-          - os: macos-15
+          # ARM64 (Apple Silicon Mac, macOS 11+)
+          - os: macos-latest
             target: aarch64-apple-darwin
             asset_name: dcr-aarch64-apple-darwin
 
